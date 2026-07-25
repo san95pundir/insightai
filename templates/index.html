@@ -1,0 +1,572 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>InsightAI — Query Ledger</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Special+Elite&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --paper: #E9E1CC;
+    --paper-light: #F7F2E4;
+    --paper-white: #FCFAF3;
+    --ink: #2A2822;
+    --ink-soft: #6B6350;
+    --rule: #C7BB99;
+    --rule-strong: #A6976B;
+    --ledger-green: #1F5C4F;
+    --ledger-green-deep: #163F37;
+    --correction-red: #8C2F2F;
+    --stamp-gold: #9C7A2E;
+  }
+
+  * { box-sizing: border-box; }
+
+  html { scroll-behavior: smooth; }
+
+  body {
+    margin: 0;
+    background:
+      radial-gradient(ellipse at top, rgba(255,255,255,0.25), transparent 60%),
+      var(--paper);
+    background-attachment: fixed;
+    color: var(--ink);
+    font-family: 'IBM Plex Sans', sans-serif;
+    position: relative;
+  }
+
+  /* subtle paper grain */
+  body::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    opacity: 0.5;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.035'/%3E%3C/svg%3E");
+    z-index: 0;
+  }
+
+  .page {
+    max-width: 780px;
+    margin: 0 auto;
+    padding: 0 24px 100px;
+    position: relative;
+    z-index: 1;
+  }
+
+  header {
+    padding: 52px 0 26px;
+    border-bottom: 3px double var(--rule-strong);
+    margin-bottom: 34px;
+    position: relative;
+  }
+
+  .masthead-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+  }
+
+  .masthead-label {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 11px;
+    letter-spacing: 3px;
+    text-transform: uppercase;
+    color: var(--ledger-green);
+    margin-bottom: 8px;
+  }
+
+  h1 {
+    font-family: 'Special Elite', monospace;
+    font-size: 42px;
+    font-weight: 400;
+    margin: 0 0 10px;
+    letter-spacing: 0.5px;
+    text-shadow: 1px 1px 0 rgba(255,255,255,0.4);
+  }
+
+  .subtitle {
+    color: var(--ink-soft);
+    font-size: 14.5px;
+    max-width: 480px;
+    line-height: 1.55;
+  }
+
+  .stamp {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 10px;
+    letter-spacing: 1.5px;
+    color: var(--stamp-gold);
+    border: 1.5px solid var(--stamp-gold);
+    border-radius: 4px;
+    padding: 5px 10px;
+    transform: rotate(4deg);
+    white-space: nowrap;
+    opacity: 0.85;
+  }
+
+  .sheet {
+    background: var(--paper-light);
+    border: 1px solid var(--rule-strong);
+    border-radius: 2px;
+    padding: 22px 24px;
+    margin-bottom: 22px;
+    box-shadow: 0 1px 0 rgba(255,255,255,0.5) inset, 0 6px 14px -8px rgba(42,40,34,0.35);
+  }
+
+  .section-label {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 11px;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    color: var(--ink-soft);
+    margin-bottom: 16px;
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+  }
+  .section-label .n { color: var(--ledger-green); font-weight: 500; }
+
+  /* drag and drop zone */
+  .dropzone {
+    border: 2px dashed var(--rule-strong);
+    border-radius: 3px;
+    background: var(--paper-white);
+    padding: 26px 20px;
+    text-align: center;
+    cursor: pointer;
+    transition: border-color 0.15s ease, background 0.15s ease;
+  }
+  .dropzone:hover, .dropzone.drag-over {
+    border-color: var(--ledger-green);
+    background: #f2ede0;
+  }
+  .dropzone-icon {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 22px;
+    color: var(--rule-strong);
+    margin-bottom: 6px;
+  }
+  .dropzone-text {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 13px;
+    color: var(--ink-soft);
+  }
+  .dropzone-text .filename {
+    color: var(--ledger-green);
+    font-weight: 500;
+  }
+  .dropzone input[type="file"] { display: none; }
+
+  .row { display: flex; gap: 10px; align-items: stretch; flex-wrap: wrap; margin-top: 14px; }
+
+  input[type="text"] {
+    flex: 1;
+    min-width: 220px;
+    padding: 13px 15px;
+    background: var(--paper-white);
+    border: 1px solid var(--rule-strong);
+    border-radius: 2px;
+    color: var(--ink);
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 14px;
+  }
+  input[type="text"]:focus { outline: none; border-color: var(--ledger-green); background: #fff; }
+  input[type="text"]::placeholder { color: #a89d80; }
+
+  button {
+    padding: 12px 22px;
+    background: var(--ledger-green);
+    border: none;
+    border-radius: 2px;
+    color: var(--paper-light);
+    font-family: 'IBM Plex Mono', monospace;
+    font-weight: 500;
+    font-size: 13px;
+    letter-spacing: 0.5px;
+    cursor: pointer;
+    transition: background 0.15s ease, transform 0.1s ease;
+    white-space: nowrap;
+  }
+  button:hover { background: var(--ledger-green-deep); }
+  button:active { transform: translateY(1px); }
+  button:disabled { background: #9b937e; cursor: not-allowed; }
+
+  .status {
+    margin-top: 12px;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 12.5px;
+    color: var(--ink-soft);
+  }
+  .status.error { color: var(--correction-red); }
+  .status.success { color: var(--ledger-green); }
+
+  .spinner {
+    display: inline-block;
+    width: 12px;
+    height: 12px;
+    border: 2px solid rgba(255,255,255,0.35);
+    border-top-color: white;
+    border-radius: 50%;
+    animation: spin 0.7s linear infinite;
+    vertical-align: middle;
+    margin-right: 6px;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* dataset preview card, shown after upload */
+  .preview-card {
+    margin-top: 16px;
+    border-top: 1px dashed var(--rule-strong);
+    padding-top: 16px;
+    display: none;
+  }
+  .preview-meta {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 12px;
+    color: var(--ink-soft);
+    margin-bottom: 10px;
+    display: flex;
+    gap: 16px;
+  }
+  .preview-meta b { color: var(--ink); font-weight: 600; }
+  .preview-table-wrap { overflow-x: auto; }
+
+  table {
+    border-collapse: collapse;
+    width: 100%;
+    margin-bottom: 4px;
+    font-size: 13px;
+    font-family: 'IBM Plex Mono', monospace;
+  }
+  th, td {
+    border: 1px solid var(--rule);
+    padding: 7px 11px;
+    text-align: left;
+    white-space: nowrap;
+  }
+  th {
+    background: #DED2AC;
+    color: var(--ink-soft);
+    font-weight: 500;
+    text-transform: uppercase;
+    font-size: 10.5px;
+    letter-spacing: 0.5px;
+  }
+  tr:nth-child(even) td { background: #F2EDDF; }
+
+  #history { display: flex; flex-direction: column; gap: 24px; }
+
+  .entry { animation: settle 0.3s ease; }
+  @keyframes settle { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
+
+  .entry-head {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    margin-bottom: 12px;
+    padding-bottom: 9px;
+    border-bottom: 1px solid var(--rule);
+  }
+  .entry-number { font-family: 'Special Elite', monospace; font-size: 15px; color: var(--ledger-green); white-space: nowrap; }
+  .entry-question { font-family: 'IBM Plex Sans', sans-serif; font-weight: 600; font-size: 15.5px; color: var(--ink); }
+
+  .receipt {
+    background: var(--paper-white);
+    border: 1px solid var(--rule-strong);
+    border-left: 3px solid var(--ledger-green);
+    padding: 13px 15px;
+    margin-bottom: 15px;
+    position: relative;
+    box-shadow: 0 3px 8px -6px rgba(42,40,34,0.4);
+  }
+  .receipt::before {
+    content: "QUERY";
+    position: absolute;
+    top: -9px;
+    left: 12px;
+    background: var(--paper-light);
+    padding: 0 6px;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 9.5px;
+    letter-spacing: 2px;
+    color: var(--ink-soft);
+  }
+  .receipt-sql {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 12.5px;
+    color: var(--ink);
+    white-space: pre-wrap;
+    line-height: 1.6;
+    overflow-x: auto;
+  }
+
+  .chart-frame {
+    background: var(--paper-light);
+    border: 1px solid var(--rule);
+    padding: 10px;
+    margin-top: 6px;
+    box-shadow: 0 3px 10px -6px rgba(42,40,34,0.4);
+  }
+  .chart-img { max-width: 100%; display: block; }
+
+  .error-strip {
+    color: var(--correction-red);
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 13px;
+    background: rgba(140,47,47,0.07);
+    border: 1px solid rgba(140,47,47,0.3);
+    border-left: 3px solid var(--correction-red);
+    padding: 10px 14px;
+  }
+
+  .empty-hint {
+    color: var(--ink-soft);
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 13px;
+    text-align: center;
+    padding: 40px 20px;
+    border: 1px dashed var(--rule-strong);
+    border-radius: 3px;
+    line-height: 1.7;
+  }
+  .empty-hint .big { font-family: 'Special Elite', monospace; font-size: 18px; color: var(--ink-soft); display: block; margin-bottom: 6px; }
+
+  footer {
+    margin-top: 44px;
+    padding-top: 16px;
+    border-top: 1px solid var(--rule);
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 11px;
+    color: var(--ink-soft);
+    text-align: center;
+    letter-spacing: 0.5px;
+  }
+
+  @media (max-width: 560px) {
+    .masthead-row { flex-direction: column; gap: 10px; }
+    h1 { font-size: 32px; }
+  }
+</style>
+</head>
+<body>
+<div class="page">
+
+<header>
+  <div class="masthead-row">
+    <div>
+      <div class="masthead-label">Natural Language → SQL</div>
+      <h1>InsightAI</h1>
+      <div class="subtitle">Upload a table. Ask what you want to know. Every question is logged below as a query entry, with its SQL, result, and chart.</div>
+    </div>
+    <div class="stamp">VERIFIED&nbsp;QUERY</div>
+  </div>
+</header>
+
+<div class="sheet">
+  <div class="section-label"><span class="n">01</span> Load a dataset</div>
+
+  <div class="dropzone" id="dropzone" onclick="document.getElementById('csvFile').click()">
+    <div class="dropzone-icon">&#8942;&#8942;&#8942;</div>
+    <div class="dropzone-text" id="dropzoneText">Drop a CSV here, or click to browse</div>
+    <input type="file" id="csvFile" accept=".csv">
+  </div>
+
+  <div class="row">
+    <button id="uploadBtn" onclick="uploadFile()">Load CSV</button>
+  </div>
+  <div id="uploadStatus" class="status"></div>
+
+  <div class="preview-card" id="previewCard">
+    <div class="preview-meta">
+      <span><b id="previewRowCount">0</b> rows</span>
+      <span><b id="previewColCount">0</b> columns</span>
+    </div>
+    <div class="preview-table-wrap">
+      <table id="previewTable"></table>
+    </div>
+  </div>
+</div>
+
+<div class="sheet">
+  <div class="section-label"><span class="n">02</span> Ask a question</div>
+  <div class="row" style="margin-top:0;">
+    <input type="text" id="question" placeholder="revenue per product" onkeydown="if(event.key==='Enter') askQuestion()">
+    <button id="askBtn" onclick="askQuestion()">Ask</button>
+  </div>
+  <div id="askStatus" class="status"></div>
+</div>
+
+<div id="history">
+  <div class="empty-hint" id="emptyHint"><span class="big">— ledger empty —</span>Load a dataset above, then ask your first question.</div>
+</div>
+
+<footer>InsightAI Query Ledger</footer>
+
+</div>
+
+<script>
+let entryCount = 0;
+
+function setLoading(btn, isLoading, label) {
+  btn.disabled = isLoading;
+  btn.innerHTML = isLoading ? `<span class="spinner"></span>${label}` : label;
+}
+
+function escapeHtml(str) {
+  const div = document.createElement("div");
+  div.textContent = str;
+  return div.innerHTML;
+}
+
+const dropzone = document.getElementById("dropzone");
+const csvFile = document.getElementById("csvFile");
+const dropzoneText = document.getElementById("dropzoneText");
+
+csvFile.addEventListener("change", () => {
+  if (csvFile.files.length) {
+    dropzoneText.innerHTML = `Selected: <span class="filename">${escapeHtml(csvFile.files[0].name)}</span>`;
+  }
+});
+
+["dragenter", "dragover"].forEach(evt => {
+  dropzone.addEventListener(evt, (e) => {
+    e.preventDefault();
+    dropzone.classList.add("drag-over");
+  });
+});
+["dragleave", "drop"].forEach(evt => {
+  dropzone.addEventListener(evt, (e) => {
+    e.preventDefault();
+    dropzone.classList.remove("drag-over");
+  });
+});
+dropzone.addEventListener("drop", (e) => {
+  const files = e.dataTransfer.files;
+  if (files.length) {
+    csvFile.files = files;
+    dropzoneText.innerHTML = `Selected: <span class="filename">${escapeHtml(files[0].name)}</span>`;
+  }
+});
+
+async function uploadFile() {
+  const status = document.getElementById("uploadStatus");
+  const btn = document.getElementById("uploadBtn");
+  const previewCard = document.getElementById("previewCard");
+
+  if (!csvFile.files.length) {
+    status.textContent = "Choose a CSV file first.";
+    status.className = "status error";
+    return;
+  }
+
+  const formData = new FormData();
+  formData.append("file", csvFile.files[0]);
+
+  setLoading(btn, true, "Loading");
+  status.textContent = "";
+  status.className = "status";
+  previewCard.style.display = "none";
+
+  try {
+    const res = await fetch("/upload", { method: "POST", body: formData });
+    const data = await res.json();
+
+    if (res.ok) {
+      status.textContent = "Loaded successfully.";
+      status.className = "status success";
+
+      document.getElementById("previewRowCount").textContent = data.row_count;
+      document.getElementById("previewColCount").textContent = data.columns.length;
+
+      let tableHtml = "<tr>" + data.columns.map(c => `<th>${escapeHtml(c)}</th>`).join("") + "</tr>";
+      for (const row of data.preview_rows) {
+        tableHtml += "<tr>" + row.map(v => `<td>${escapeHtml(v)}</td>`).join("") + "</tr>";
+      }
+      document.getElementById("previewTable").innerHTML = tableHtml;
+      previewCard.style.display = "block";
+    } else {
+      status.textContent = "Error: " + data.error;
+      status.className = "status error";
+    }
+  } catch (err) {
+    status.textContent = "Network error: " + err.message;
+    status.className = "status error";
+  } finally {
+    setLoading(btn, false, "Load CSV");
+  }
+}
+
+async function askQuestion() {
+  const questionInput = document.getElementById("question");
+  const question = questionInput.value.trim();
+  const status = document.getElementById("askStatus");
+  const btn = document.getElementById("askBtn");
+
+  if (!question) {
+    status.textContent = "Type a question first.";
+    status.className = "status error";
+    return;
+  }
+
+  setLoading(btn, true, "Thinking");
+  status.textContent = "";
+  status.className = "status";
+
+  try {
+    const res = await fetch("/ask", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ question })
+    });
+    const data = await res.json();
+
+    const emptyHint = document.getElementById("emptyHint");
+    if (emptyHint) emptyHint.remove();
+
+    entryCount += 1;
+    const entryLabel = String(entryCount).padStart(3, "0");
+
+    const block = document.createElement("div");
+    block.className = "entry";
+
+    if (!res.ok) {
+      block.innerHTML = `
+        <div class="entry-head">
+          <span class="entry-number">No. ${entryLabel}</span>
+          <span class="entry-question">${escapeHtml(question)}</span>
+        </div>
+        <div class="error-strip">${escapeHtml(data.error)}</div>
+        ${data.sql ? `<div class="receipt" style="margin-top:14px;"><div class="receipt-sql">${escapeHtml(data.sql)}</div></div>` : ""}
+      `;
+    } else {
+      let tableHtml = "<table><tr>" + data.columns.map(c => `<th>${escapeHtml(c)}</th>`).join("") + "</tr>";
+      for (const row of data.rows) {
+        tableHtml += "<tr>" + row.map(v => `<td>${escapeHtml(String(v))}</td>`).join("") + "</tr>";
+      }
+      tableHtml += "</table>";
+
+      block.innerHTML = `
+        <div class="entry-head">
+          <span class="entry-number">No. ${entryLabel}</span>
+          <span class="entry-question">${escapeHtml(question)}</span>
+        </div>
+        <div class="receipt"><div class="receipt-sql">${escapeHtml(data.sql)}</div></div>
+        ${tableHtml}
+        ${data.chart ? `<div class="chart-frame"><img class="chart-img" src="/charts/${data.chart}?t=${Date.now()}"></div>` : ""}
+      `;
+    }
+
+    document.getElementById("history").appendChild(block);
+    questionInput.value = "";
+  } catch (err) {
+    status.textContent = "Network error: " + err.message;
+    status.className = "status error";
+  } finally {
+    setLoading(btn, false, "Ask");
+  }
+}
+</script>
+
+</body>
+</html>
