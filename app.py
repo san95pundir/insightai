@@ -1,7 +1,8 @@
 import os
 import sqlite3
+import uuid
 import pandas as pd
-from flask import Flask, request, jsonify, render_template, send_from_directory
+from flask import Flask, request, jsonify, render_template, send_from_directory, session
 from werkzeug.utils import secure_filename
 from google import genai
 
@@ -9,20 +10,38 @@ from google import genai
 # Reuses the same logic as insightai.py (load_csv_to_sqlite, ask_gemini_for_sql,
 # run_query, maybe_generate_chart) but wrapped behind Flask routes instead of
 # a CLI loop.
+#
+# Multi-user isolation: each visitor gets their own session (a signed cookie
+# holding a random session ID). That ID is used to build a per-session table
+# name and per-session chart filenames, so two people using the live app at
+# the same time never see or overwrite each other's data.
 # ---------------------------------------------------------------------------
 
 app = Flask(__name__)
 
+# Needed for Flask's session cookies to work. In production (Render), set
+# SECRET_KEY as an environment variable so sessions survive server restarts.
+# Locally, falls back to a random key generated at startup (fine for testing;
+# it just means everyone's session resets if you restart Flask).
+app.secret_key = os.environ.get("SECRET_KEY", os.urandom(24).hex())
+
 UPLOAD_DIR = "uploads"
 CHART_DIR = "charts"
 DB_PATH = "data.db"
-TABLE_NAME = "data_table"
 
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 os.makedirs(CHART_DIR, exist_ok=True)
 
-# Keep schema in memory between /upload and /ask calls (single-user, simple case)
-STATE = {"schema": None, "table_name": TABLE_NAME}
+# Per-session state, keyed by session ID (not shared globally between users).
+# Each entry: {"schema": ..., "table_name": ...}
+SESSIONS = {}
+
+
+def get_session_id():
+    """Returns this visitor's session ID, creating one if it doesn't exist yet."""
+    if "sid" not in session:
+        session["sid"] = uuid.uuid4().hex
+    return session["sid"]
 
 
 def get_gemini_client():
@@ -32,7 +51,7 @@ def get_gemini_client():
     return genai.Client(api_key=api_key)
 
 
-def load_csv_to_sqlite(csv_path, table_name=TABLE_NAME, db_path=DB_PATH):
+def load_csv_to_sqlite(csv_path, table_name, db_path=DB_PATH):
     df = pd.read_csv(csv_path)
     conn = sqlite3.connect(db_path)
     df.to_sql(table_name, conn, if_exists="replace", index=False)
@@ -49,7 +68,7 @@ def load_csv_to_sqlite(csv_path, table_name=TABLE_NAME, db_path=DB_PATH):
     return schema_str, list(df.columns), preview_rows, row_count
 
 
-def ask_gemini_for_sql(question, schema, table_name=TABLE_NAME):
+def ask_gemini_for_sql(question, schema, table_name):
     client = get_gemini_client()
     if client is None:
         raise RuntimeError(
@@ -107,11 +126,12 @@ class UnsafeSQLError(Exception):
     pass
 
 
-def validate_sql_is_safe(sql):
+def validate_sql_is_safe(sql, allowed_table_name):
     """
-    Enforces that the SQL is a single, read-only SELECT statement.
-    Raises UnsafeSQLError if the query looks like it could modify data,
-    contains multiple statements, or isn't a SELECT at all.
+    Enforces that the SQL is a single, read-only SELECT statement that only
+    touches the caller's own table. Raises UnsafeSQLError if the query looks
+    like it could modify data, contains multiple statements, references a
+    different table (e.g. another session's data), or isn't a SELECT at all.
     """
     cleaned = sql.strip().rstrip(";").strip()
 
@@ -137,12 +157,19 @@ def validate_sql_is_safe(sql):
         if re.search(rf"\b{keyword}\b", lowered):
             raise UnsafeSQLError(f"Query contains a disallowed keyword: {keyword.upper()}")
 
+    # Isolation check: the query must reference this session's own table.
+    # This stops one visitor's query from ever being able to read another
+    # visitor's uploaded data, even by accident or a crafted question.
+    if allowed_table_name.lower() not in lowered:
+        raise UnsafeSQLError("Query does not reference the expected table for this session.")
+
     return cleaned
 
 
-def run_query(sql, db_path=DB_PATH):
-    # Validate first -- reject anything that isn't a clean, single SELECT.
-    safe_sql = validate_sql_is_safe(sql)
+def run_query(sql, allowed_table_name, db_path=DB_PATH):
+    # Validate first -- reject anything that isn't a clean, single SELECT
+    # that stays scoped to this session's own table.
+    safe_sql = validate_sql_is_safe(sql, allowed_table_name)
 
     # Second, independent layer of defense: open SQLite itself in read-only
     # mode (mode=ro). Even if a malicious query somehow slipped past
@@ -207,16 +234,21 @@ def upload():
     if file.filename == "":
         return jsonify({"error": "Empty filename"}), 400
 
+    sid = get_session_id()
+    table_name = f"data_{sid}"
+
+    # Namespace the saved upload by session ID too, so two people uploading
+    # a file with the same name don't overwrite each other on disk.
     filename = secure_filename(file.filename)
-    save_path = os.path.join(UPLOAD_DIR, filename)
+    save_path = os.path.join(UPLOAD_DIR, f"{sid}_{filename}")
     file.save(save_path)
 
     try:
-        schema, columns, preview_rows, row_count = load_csv_to_sqlite(save_path)
+        schema, columns, preview_rows, row_count = load_csv_to_sqlite(save_path, table_name)
     except Exception as e:
         return jsonify({"error": f"Failed to load CSV: {e}"}), 400
 
-    STATE["schema"] = schema
+    SESSIONS[sid] = {"schema": schema, "table_name": table_name}
 
     return jsonify({
         "message": "File uploaded and loaded.",
@@ -236,18 +268,23 @@ def ask():
     if not question:
         return jsonify({"error": "No question provided"}), 400
 
-    if not STATE["schema"]:
+    sid = get_session_id()
+    state = SESSIONS.get(sid)
+
+    if not state or not state.get("schema"):
         return jsonify({"error": "No CSV uploaded yet. Upload a file first."}), 400
 
+    table_name = state["table_name"]
+
     try:
-        sql = ask_gemini_for_sql(question, STATE["schema"])
+        sql = ask_gemini_for_sql(question, state["schema"], table_name)
     except RuntimeError as e:
         return jsonify({"error": str(e)}), 500
     except Exception as e:
         return jsonify({"error": f"Gemini call failed: {e}"}), 500
 
     try:
-        result_df = run_query(sql)
+        result_df = run_query(sql, table_name)
     except UnsafeSQLError as e:
         # This query was blocked by our safety layer -- log it conceptually
         # as a security event, and never execute it.
@@ -258,7 +295,10 @@ def ask():
     except Exception as e:
         return jsonify({"error": f"SQL execution failed: {e}", "sql": sql}), 400
 
-    chart_filename = maybe_generate_chart(result_df, filename_hint=question[:30])
+    # Chart filenames are namespaced by session ID so two visitors' charts
+    # never collide or overwrite each other in the shared charts/ folder.
+    chart_hint = f"{sid}_{question[:30]}"
+    chart_filename = maybe_generate_chart(result_df, filename_hint=chart_hint)
 
     return jsonify({
         "sql": sql,
