@@ -62,7 +62,7 @@ def load_csv_to_sqlite(csv_path, table_name, db_path=DB_PATH):
         schema_lines.append(f"{col} ({dtype})")
     schema_str = f"Table: {table_name}\nColumns: " + ", ".join(schema_lines)
 
-    preview_rows = df.head(5).astype(str).values.tolist()
+    preview_rows = df.head(5).fillna("").astype(str).values.tolist()
     row_count = len(df)
 
     return schema_str, list(df.columns), preview_rows, row_count
