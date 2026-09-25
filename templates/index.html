@@ -319,6 +319,28 @@
     border-left: 3px solid var(--correction-red);
     padding: 10px 14px;
   }
+    .insight-note {
+    margin-top: 14px;
+    padding: 12px 15px;
+    background: rgba(156,122,46,0.08);
+    border: 1px solid rgba(156,122,46,0.35);
+    border-left: 3px solid var(--stamp-gold);
+    font-family: 'IBM Plex Sans', sans-serif;
+    font-size: 13.5px;
+    font-style: italic;
+    color: var(--ink);
+    line-height: 1.6;
+  }
+  .insight-note::before {
+    content: "ANALYST'S NOTE";
+    display: block;
+    font-family: 'IBM Plex Mono', monospace;
+    font-style: normal;
+    font-size: 9.5px;
+    letter-spacing: 2px;
+    color: var(--stamp-gold);
+    margin-bottom: 5px;
+  }
 
   .empty-hint {
     color: var(--ink-soft);
@@ -546,7 +568,7 @@ async function askQuestion() {
       }
       tableHtml += "</table>";
 
-      block.innerHTML = `
+            block.innerHTML = `
         <div class="entry-head">
           <span class="entry-number">No. ${entryLabel}</span>
           <span class="entry-question">${escapeHtml(question)}</span>
@@ -554,6 +576,7 @@ async function askQuestion() {
         <div class="receipt"><div class="receipt-sql">${escapeHtml(data.sql)}</div></div>
         ${tableHtml}
         ${data.chart ? `<div class="chart-frame"><img class="chart-img" src="/charts/${data.chart}?t=${Date.now()}"></div>` : ""}
+        ${data.insight ? `<div class="insight-note">${escapeHtml(data.insight)}</div>` : ""}
       `;
     }
 

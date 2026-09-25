@@ -332,7 +332,7 @@ def ask():
 
     # Chart filenames are namespaced by session ID so two visitors' charts
     # never collide or overwrite each other in the shared charts/ folder.
-       chart_hint = f"{sid}_{question[:30]}"
+    chart_hint = f"{sid}_{question[:30]}"
     chart_filename = maybe_generate_chart(result_df, filename_hint=chart_hint)
     insight = generate_insight(question, result_df)
 
