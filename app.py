@@ -214,6 +214,41 @@ def maybe_generate_chart(result_df, filename_hint="chart"):
     plt.savefig(path)
     plt.close()
     return filename
+def generate_insight(question, result_df):
+    """
+    Sends the query result back to Gemini with a small follow-up prompt,
+    asking for one sentence of business interpretation.
+    Returns None (never raises) if there's no key, no data, or the call
+    fails -- an insight is a bonus, not something that should ever break
+    the main /ask response.
+    """
+    client = get_gemini_client()
+    if client is None or result_df.empty:
+        return None
+
+    result_text = result_df.head(20).to_string(index=False)
+
+    prompt = f"""You are a business data analyst. A user asked this question about their data:
+
+"{question}"
+
+Here is the query result:
+{result_text}
+
+Write ONE short, plain-English sentence that interprets this result from a
+business perspective. Focus on the most notable finding (a leader, a gap,
+a concentration, a decline). Do not just restate the numbers -- give the
+takeaway. No preamble, just the single sentence.
+"""
+
+    try:
+        response = client.models.generate_content(
+            model="gemini-flash-latest",
+            contents=prompt,
+        )
+        return response.text.strip()
+    except Exception:
+        return None
 
 
 # ---------------------------------------------------------------------------
@@ -297,14 +332,16 @@ def ask():
 
     # Chart filenames are namespaced by session ID so two visitors' charts
     # never collide or overwrite each other in the shared charts/ folder.
-    chart_hint = f"{sid}_{question[:30]}"
+       chart_hint = f"{sid}_{question[:30]}"
     chart_filename = maybe_generate_chart(result_df, filename_hint=chart_hint)
+    insight = generate_insight(question, result_df)
 
     return jsonify({
         "sql": sql,
         "columns": result_df.columns.tolist(),
         "rows": result_df.values.tolist(),
         "chart": chart_filename,
+        "insight": insight,
     })
 
 
