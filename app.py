@@ -1,3 +1,5 @@
+import json
+import re
 import os
 import sqlite3
 import uuid
@@ -152,7 +154,7 @@ def validate_sql_is_safe(sql, allowed_table_name):
     # Even inside a SELECT, reject if any forbidden keyword shows up as a
     # standalone word (e.g. blocks a subquery or comment trick that sneaks
     # in "drop table ..." disguised inside the query text).
-    import re
+    
     for keyword in FORBIDDEN_KEYWORDS:
         if re.search(rf"\b{keyword}\b", lowered):
             raise UnsafeSQLError(f"Query contains a disallowed keyword: {keyword.upper()}")
@@ -251,6 +253,65 @@ takeaway. No preamble, just the single sentence.
         return None
 
 
+def parse_suggested_questions(raw_text):
+    """
+    Gemini is asked to return a JSON array of question strings, but LLMs
+    don't always follow formatting instructions perfectly. This tries
+    clean JSON parsing first, then falls back to extracting quoted
+    strings or numbered/bulleted lines, so a slightly-off response
+    doesn't break the feature entirely.
+    """
+    cleaned = raw_text.strip()
+    cleaned = cleaned.replace("```json", "").replace("```", "").strip()
+
+    try:
+        questions = json.loads(cleaned)
+        if isinstance(questions, list):
+            return [str(q).strip() for q in questions if str(q).strip()][:4]
+    except (json.JSONDecodeError, ValueError):
+        pass
+
+    lines = re.findall(r'"([^"]+)"', cleaned)
+    if lines:
+        return lines[:4]
+
+    lines = [
+        re.sub(r'^[\d\.\-\*\)]+\s*', '', line).strip()
+        for line in cleaned.split("\n") if line.strip()
+    ]
+    return [l for l in lines if l][:4]
+
+
+def generate_suggested_questions(schema):
+    """
+    Given a dataset's schema, asks Gemini for 3-4 good starter questions
+    a user could ask about it. Returns an empty list (never raises) if
+    there's no API key or the call fails -- suggestions are a nice-to-have,
+    not something that should ever block a successful upload.
+    """
+    client = get_gemini_client()
+    if client is None:
+        return []
+
+    prompt = f"""Given this dataset schema:
+
+{schema}
+
+Suggest 3-4 good, specific analytical questions a user could ask about
+this data. Return ONLY a JSON array of strings, no markdown, no
+explanation. Example format: ["question 1", "question 2", "question 3"]
+"""
+
+    try:
+        response = client.models.generate_content(
+            model="gemini-flash-latest",
+            contents=prompt,
+        )
+        return parse_suggested_questions(response.text)
+    except Exception:
+        return []
+
+
 # ---------------------------------------------------------------------------
 # Routes
 # ---------------------------------------------------------------------------
@@ -283,7 +344,8 @@ def upload():
     except Exception as e:
         return jsonify({"error": f"Failed to load CSV: {e}"}), 400
 
-    SESSIONS[sid] = {"schema": schema, "table_name": table_name}
+        SESSIONS[sid] = {"schema": schema, "table_name": table_name}
+    suggested_questions = generate_suggested_questions(schema)
 
     return jsonify({
         "message": "File uploaded and loaded.",
@@ -292,6 +354,7 @@ def upload():
         "preview_rows": preview_rows,
         "row_count": row_count,
         "filename": filename,
+        "suggested_questions": suggested_questions,
     })
 
 

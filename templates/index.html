@@ -231,6 +231,31 @@
   }
   .preview-meta b { color: var(--ink); font-weight: 600; }
   .preview-table-wrap { overflow-x: auto; }
+    .suggested-questions {
+    margin-top: 14px;
+    display: none;
+  }
+  .suggested-label {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 10.5px;
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+    color: var(--ink-soft);
+    margin-bottom: 8px;
+  }
+  .chip-row { display: flex; flex-wrap: wrap; gap: 8px; }
+  .chip {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 12.5px;
+    background: var(--paper-white);
+    border: 1px solid var(--rule-strong);
+    border-radius: 14px;
+    padding: 7px 14px;
+    cursor: pointer;
+    color: var(--ledger-green);
+    transition: background 0.15s ease, border-color 0.15s ease;
+  }
+  .chip:hover { background: #f2ede0; border-color: var(--ledger-green); }
 
   table {
     border-collapse: collapse;
@@ -407,6 +432,10 @@
     <div class="preview-table-wrap">
       <table id="previewTable"></table>
     </div>
+        <div class="suggested-questions" id="suggestedQuestions">
+      <div class="suggested-label">Suggested questions</div>
+      <div class="chip-row" id="chipRow"></div>
+    </div>
   </div>
 </div>
 
@@ -507,6 +536,17 @@ async function uploadFile() {
       }
       document.getElementById("previewTable").innerHTML = tableHtml;
       previewCard.style.display = "block";
+
+      const suggestedBox = document.getElementById("suggestedQuestions");
+      const chipRow = document.getElementById("chipRow");
+      if (data.suggested_questions && data.suggested_questions.length) {
+        chipRow.innerHTML = data.suggested_questions.map(q =>
+          `<div class="chip" onclick="document.getElementById('question').value = ${JSON.stringify(q)}; askQuestion();">${escapeHtml(q)}</div>`
+        ).join("");
+        suggestedBox.style.display = "block";
+      } else {
+        suggestedBox.style.display = "none";
+      }
     } else {
       status.textContent = "Error: " + data.error;
       status.className = "status error";
