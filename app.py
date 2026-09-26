@@ -260,6 +260,33 @@ takeaway. No preamble, just the single sentence.
     except Exception:
         return None
 
+def generate_sql_explanation(sql):
+    """
+    Sends the generated SQL to Gemini and asks for one plain-English
+    sentence explaining what it does. Returns None (never raises) if
+    there's no API key or the call fails -- this is a bonus explanation,
+    not something that should ever block showing the actual result.
+    """
+    client = get_gemini_client()
+    if client is None:
+        return None
+
+    prompt = f"""Explain what this SQL query does, in ONE short, plain-English
+sentence a non-technical person would understand. No preamble, just the
+sentence.
+
+SQL:
+{sql}
+"""
+
+    try:
+        response = client.models.generate_content(
+            model="gemini-flash-latest",
+            contents=prompt,
+        )
+        return response.text.strip()
+    except Exception:
+        return None
 
 def parse_suggested_questions(raw_text):
     """
@@ -452,6 +479,7 @@ def ask():
     chart_hint = f"{sid}_{question[:30]}"
     chart_filename = maybe_generate_chart(result_df, filename_hint=chart_hint)
     insight = generate_insight(question, result_df)
+    sql_explanation = generate_sql_explanation(sql)
 
     return jsonify({
         "sql": sql,
@@ -459,6 +487,7 @@ def ask():
         "rows": result_df.values.tolist(),
         "chart": chart_filename,
         "insight": insight,
+        "sql_explanation": sql_explanation,
     })
 @app.route("/charts/<path:filename>")
 def serve_chart(filename):
