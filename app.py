@@ -344,7 +344,10 @@ def upload():
     except Exception as e:
         return jsonify({"error": f"Failed to load CSV: {e}"}), 400
 
-        SESSIONS[sid] = {"schema": schema, "table_name": table_name}
+
+
+
+    SESSIONS[sid] = {"schema": schema, "table_name": table_name}
     suggested_questions = generate_suggested_questions(schema)
 
     return jsonify({
