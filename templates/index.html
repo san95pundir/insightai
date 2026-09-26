@@ -507,6 +507,28 @@ function escapeHtml(str) {
   div.textContent = str;
   return div.innerHTML;
 }
+function downloadCsv(columns, rows, filenameHint) {
+  const escapeCsvCell = (val) => {
+    const str = String(val);
+    if (str.includes(",") || str.includes('"') || str.includes("\n")) {
+      return `"${str.replace(/"/g, '""')}"`;
+    }
+    return str;
+  };
+
+  let csv = columns.map(escapeCsvCell).join(",") + "\n";
+  rows.forEach(row => {
+    csv += row.map(escapeCsvCell).join(",") + "\n";
+  });
+
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `${filenameHint || "result"}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
 
 const dropzone = document.getElementById("dropzone");
 const csvFile = document.getElementById("csvFile");
@@ -683,13 +705,16 @@ async function askQuestion() {
       }
       tableHtml += "</table>";
 
-            block.innerHTML = `
+      block.innerHTML = `
         <div class="entry-head">
           <span class="entry-number">No. ${entryLabel}</span>
           <span class="entry-question">${escapeHtml(question)}</span>
         </div>
         <div class="receipt"><div class="receipt-sql">${escapeHtml(data.sql)}</div></div>
         ${tableHtml}
+        <div class="row" style="margin-top:8px;">
+          <button onclick='downloadCsv(${JSON.stringify(data.columns)}, ${JSON.stringify(data.rows)}, "insightai_result_${entryLabel}")'>Download CSV</button>
+        </div>
         ${data.chart ? `<div class="chart-frame"><img class="chart-img" src="/charts/${data.chart}?t=${Date.now()}"></div>` : ""}
         ${data.insight ? `<div class="insight-note">${escapeHtml(data.insight)}</div>` : ""}
       `;
