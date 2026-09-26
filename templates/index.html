@@ -256,7 +256,41 @@
     transition: background 0.15s ease, border-color 0.15s ease;
   }
   .chip:hover { background: #f2ede0; border-color: var(--ledger-green); }
-
+  .eda-section {
+    margin-top: 18px;
+    border-top: 1px dashed var(--rule-strong);
+    padding-top: 16px;
+    display: none;
+  }
+  .eda-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    gap: 10px;
+  }
+  .eda-card {
+    background: var(--paper-white);
+    border: 1px solid var(--rule);
+    border-radius: 3px;
+    padding: 10px 13px;
+  }
+  .eda-card-title {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--ledger-green);
+    margin-bottom: 6px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+  .eda-stat-row {
+    display: flex;
+    justify-content: space-between;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 12px;
+    color: var(--ink-soft);
+    padding: 2px 0;
+  }
+  .eda-stat-row b { color: var(--ink); font-weight: 500; }
   table {
     border-collapse: collapse;
     width: 100%;
@@ -436,6 +470,10 @@
       <div class="suggested-label">Suggested questions</div>
       <div class="chip-row" id="chipRow"></div>
     </div>
+        <div class="eda-section" id="edaSection">
+      <div class="suggested-label">Dataset summary</div>
+      <div class="eda-grid" id="edaGrid"></div>
+    </div>
   </div>
 </div>
 
@@ -531,22 +569,59 @@ async function uploadFile() {
       document.getElementById("previewColCount").textContent = data.columns.length;
 
       let tableHtml = "<tr>" + data.columns.map(c => `<th>${escapeHtml(c)}</th>`).join("") + "</tr>";
+
       for (const row of data.preview_rows) {
         tableHtml += "<tr>" + row.map(v => `<td>${escapeHtml(v)}</td>`).join("") + "</tr>";
       }
+
       document.getElementById("previewTable").innerHTML = tableHtml;
       previewCard.style.display = "block";
 
+      // Suggested questions
       const suggestedBox = document.getElementById("suggestedQuestions");
       const chipRow = document.getElementById("chipRow");
+
       if (data.suggested_questions && data.suggested_questions.length) {
         chipRow.innerHTML = data.suggested_questions.map(q =>
           `<div class="chip" onclick="document.getElementById('question').value = ${JSON.stringify(q)}; askQuestion();">${escapeHtml(q)}</div>`
         ).join("");
+
         suggestedBox.style.display = "block";
       } else {
         suggestedBox.style.display = "none";
       }
+
+      // Automated EDA summary
+      const edaSection = document.getElementById("edaSection");
+      const edaGrid = document.getElementById("edaGrid");
+
+      if (data.eda_summary && data.eda_summary.length) {
+        edaGrid.innerHTML = data.eda_summary.map(col => {
+          if (col.type === "numeric") {
+            return `<div class="eda-card">
+              <div class="eda-card-title">${escapeHtml(col.column)}</div>
+              <div class="eda-stat-row"><span>Mean</span><b>${col.mean}</b></div>
+              <div class="eda-stat-row"><span>Median</span><b>${col.median}</b></div>
+              <div class="eda-stat-row"><span>Min</span><b>${col.min}</b></div>
+              <div class="eda-stat-row"><span>Max</span><b>${col.max}</b></div>
+            </div>`;
+          } else {
+            const rows = col.top_values.map(tv =>
+              `<div class="eda-stat-row"><span>${escapeHtml(tv.value)}</span><b>${tv.count}</b></div>`
+            ).join("");
+
+            return `<div class="eda-card">
+              <div class="eda-card-title">${escapeHtml(col.column)}</div>
+              ${rows}
+            </div>`;
+          }
+        }).join("");
+
+        edaSection.style.display = "block";
+      } else {
+        edaSection.style.display = "none";
+      }
+
     } else {
       status.textContent = "Error: " + data.error;
       status.className = "status error";

@@ -67,7 +67,7 @@ def load_csv_to_sqlite(csv_path, table_name, db_path=DB_PATH):
     preview_rows = df.head(5).fillna("").astype(str).values.tolist()
     row_count = len(df)
 
-    return schema_str, list(df.columns), preview_rows, row_count
+    return schema_str, list(df.columns), preview_rows, row_count, df
 
 
 def ask_gemini_for_sql(question, schema, table_name):
@@ -311,7 +311,47 @@ explanation. Example format: ["question 1", "question 2", "question 3"]
     except Exception:
         return []
 
+def generate_eda_summary(df):
+    """
+    For each column, computes a small summary using plain pandas -- no AI
+    call needed. Numeric columns get mean/median/min/max, categorical
+    columns get their top 3 most frequent values with counts.
+    """
+    summary = []
 
+    for col in df.columns:
+        series = df[col]
+        missing_count = int(series.isna().sum())
+
+        if pd.api.types.is_numeric_dtype(series):
+            clean = series.dropna()
+            if len(clean) == 0:
+                continue
+            summary.append({
+                "column": col,
+                "type": "numeric",
+                "mean": round(float(clean.mean()), 2),
+                "median": round(float(clean.median()), 2),
+                "min": round(float(clean.min()), 2),
+                "max": round(float(clean.max()), 2),
+                "missing": missing_count,
+            })
+        else:
+            clean = series.dropna()
+            if len(clean) == 0:
+                continue
+            top_values = clean.value_counts().head(3)
+            summary.append({
+                "column": col,
+                "type": "categorical",
+                "top_values": [
+                    {"value": str(val), "count": int(count)}
+                    for val, count in top_values.items()
+                ],
+                "missing": missing_count,
+            })
+
+    return summary
 # ---------------------------------------------------------------------------
 # Routes
 # ---------------------------------------------------------------------------
@@ -340,15 +380,13 @@ def upload():
     file.save(save_path)
 
     try:
-        schema, columns, preview_rows, row_count = load_csv_to_sqlite(save_path, table_name)
+        schema, columns, preview_rows, row_count, df = load_csv_to_sqlite(save_path, table_name)
     except Exception as e:
         return jsonify({"error": f"Failed to load CSV: {e}"}), 400
 
-
-
-
     SESSIONS[sid] = {"schema": schema, "table_name": table_name}
     suggested_questions = generate_suggested_questions(schema)
+    eda_summary = generate_eda_summary(df)
 
     return jsonify({
         "message": "File uploaded and loaded.",
@@ -358,6 +396,7 @@ def upload():
         "row_count": row_count,
         "filename": filename,
         "suggested_questions": suggested_questions,
+        "eda_summary": eda_summary,
     })
 
 
