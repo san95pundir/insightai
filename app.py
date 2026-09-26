@@ -70,7 +70,7 @@ def load_csv_to_sqlite(csv_path, table_name, db_path=DB_PATH):
     return schema_str, list(df.columns), preview_rows, row_count, df
 
 
-def ask_gemini_for_sql(question, schema, table_name):
+def ask_gemini_for_sql(question, schema, table_name, retry_context=None):
     client = get_gemini_client()
     if client is None:
         raise RuntimeError(
@@ -78,13 +78,23 @@ def ask_gemini_for_sql(question, schema, table_name):
             "then restart the Flask server."
         )
 
+    retry_note = ""
+    if retry_context:
+        retry_note = f"""
+
+Note: a previous attempt to answer this question produced a query that
+failed with this issue: "{retry_context}"
+Please write a corrected query that avoids this problem.
+"""
+
     prompt = f"""You are a SQL generator. Given this table schema:
 
 {schema}
 
 Write a single SQLite SELECT query that answers this question:
-"{question}"
 
+"{question}"
+{retry_note}
 Rules:
 - Return ONLY the raw SQL query, no markdown, no explanation, no code fences.
 - Only use SELECT statements. Never modify data.
@@ -95,9 +105,7 @@ Rules:
         model="gemini-flash-latest",
         contents=prompt,
     )
-
     sql = response.text.strip()
-    # Clean up in case the model wraps it in markdown anyway
     sql = sql.replace("```sql", "").replace("```", "").strip()
     return sql
 
@@ -404,39 +412,43 @@ def upload():
 def ask():
     data = request.get_json(silent=True) or {}
     question = data.get("question", "").strip()
-
     if not question:
         return jsonify({"error": "No question provided"}), 400
 
     sid = get_session_id()
     state = SESSIONS.get(sid)
-
     if not state or not state.get("schema"):
         return jsonify({"error": "No CSV uploaded yet. Upload a file first."}), 400
 
     table_name = state["table_name"]
 
-    try:
-        sql = ask_gemini_for_sql(question, state["schema"], table_name)
-    except RuntimeError as e:
-        return jsonify({"error": str(e)}), 500
-    except Exception as e:
-        return jsonify({"error": f"Gemini call failed: {e}"}), 500
+    sql = None
+    result_df = None
+    last_error = None
 
-    try:
-        result_df = run_query(sql, table_name)
-    except UnsafeSQLError as e:
-        # This query was blocked by our safety layer -- log it conceptually
-        # as a security event, and never execute it.
+    for attempt in range(2):
+        try:
+            sql = ask_gemini_for_sql(question, state["schema"], table_name, retry_context=last_error)
+        except RuntimeError as e:
+            return jsonify({"error": str(e)}), 500
+        except Exception as e:
+            return jsonify({"error": f"Gemini call failed: {e}"}), 500
+
+        try:
+            result_df = run_query(sql, table_name)
+            last_error = None
+            break
+        except UnsafeSQLError as e:
+            last_error = f"Blocked for safety: {e}"
+        except Exception as e:
+            last_error = f"SQL execution failed: {e}"
+
+    if last_error:
         return jsonify({
-            "error": f"Blocked for safety: {e}",
+            "error": f"Couldn't generate a working query after retrying. Last issue: {last_error}",
             "sql": sql,
         }), 400
-    except Exception as e:
-        return jsonify({"error": f"SQL execution failed: {e}", "sql": sql}), 400
 
-    # Chart filenames are namespaced by session ID so two visitors' charts
-    # never collide or overwrite each other in the shared charts/ folder.
     chart_hint = f"{sid}_{question[:30]}"
     chart_filename = maybe_generate_chart(result_df, filename_hint=chart_hint)
     insight = generate_insight(question, result_df)
@@ -448,8 +460,6 @@ def ask():
         "chart": chart_filename,
         "insight": insight,
     })
-
-
 @app.route("/charts/<path:filename>")
 def serve_chart(filename):
     return send_from_directory(CHART_DIR, filename)
