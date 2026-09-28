@@ -400,7 +400,18 @@
     color: var(--stamp-gold);
     margin-bottom: 5px;
   }
-
+  .history-index { display: none; }
+  .history-item {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 12.5px;
+    color: var(--ink);
+    padding: 7px 0;
+    border-bottom: 1px dashed var(--rule);
+    cursor: pointer;
+  }
+  .history-item:last-child { border-bottom: none; }
+  .history-item:hover { color: var(--ledger-green); }
+  .history-num { color: var(--ledger-green); margin-right: 8px; }
   .empty-hint {
     color: var(--ink-soft);
     font-family: 'IBM Plex Mono', monospace;
@@ -489,7 +500,10 @@
 <div id="history">
   <div class="empty-hint" id="emptyHint"><span class="big">— ledger empty —</span>Load a dataset above, then ask your first question.</div>
 </div>
-
+<div class="sheet history-index" id="historyIndex">
+  <div class="section-label"><span class="n">03</span> Session history</div>
+  <div id="historyList"></div>
+</div>
 <footer>InsightAI Query Ledger</footer>
 
 </div>
@@ -724,6 +738,12 @@ async function askQuestion() {
     }
 
     document.getElementById("history").appendChild(block);
+    document.getElementById("historyIndex").style.display = "block";
+    const historyItem = document.createElement("div");
+    historyItem.className = "history-item";
+    historyItem.innerHTML = `<span class="history-num">No. ${entryLabel}</span>${escapeHtml(question)}`;
+    historyItem.onclick = () => block.scrollIntoView({ behavior: "smooth", block: "start" });
+    document.getElementById("historyList").appendChild(historyItem);
     questionInput.value = "";
   } catch (err) {
     status.textContent = "Network error: " + err.message;
