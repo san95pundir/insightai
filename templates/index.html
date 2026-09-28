@@ -2,6 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>InsightAI — Query Ledger</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Special+Elite&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
@@ -231,7 +232,8 @@
   }
   .preview-meta b { color: var(--ink); font-weight: 600; }
   .preview-table-wrap { overflow-x: auto; }
-    .suggested-questions {
+
+  .suggested-questions {
     margin-top: 14px;
     display: none;
   }
@@ -256,6 +258,7 @@
     transition: background 0.15s ease, border-color 0.15s ease;
   }
   .chip:hover { background: #f2ede0; border-color: var(--ledger-green); }
+
   .eda-section {
     margin-top: 18px;
     border-top: 1px dashed var(--rule-strong);
@@ -291,6 +294,7 @@
     padding: 2px 0;
   }
   .eda-stat-row b { color: var(--ink); font-weight: 500; }
+
   table {
     border-collapse: collapse;
     width: 100%;
@@ -378,7 +382,8 @@
     border-left: 3px solid var(--correction-red);
     padding: 10px 14px;
   }
-    .insight-note {
+
+  .insight-note {
     margin-top: 14px;
     padding: 12px 15px;
     background: rgba(156,122,46,0.08);
@@ -400,6 +405,7 @@
     color: var(--stamp-gold);
     margin-bottom: 5px;
   }
+
   .history-index { display: none; }
   .history-item {
     font-family: 'IBM Plex Mono', monospace;
@@ -412,6 +418,7 @@
   .history-item:last-child { border-bottom: none; }
   .history-item:hover { color: var(--ledger-green); }
   .history-num { color: var(--ledger-green); margin-right: 8px; }
+
   .empty-hint {
     color: var(--ink-soft);
     font-family: 'IBM Plex Mono', monospace;
@@ -477,11 +484,11 @@
     <div class="preview-table-wrap">
       <table id="previewTable"></table>
     </div>
-        <div class="suggested-questions" id="suggestedQuestions">
+    <div class="suggested-questions" id="suggestedQuestions">
       <div class="suggested-label">Suggested questions</div>
       <div class="chip-row" id="chipRow"></div>
     </div>
-        <div class="eda-section" id="edaSection">
+    <div class="eda-section" id="edaSection">
       <div class="suggested-label">Dataset summary</div>
       <div class="eda-grid" id="edaGrid"></div>
     </div>
@@ -497,13 +504,15 @@
   <div id="askStatus" class="status"></div>
 </div>
 
-<div id="history">
-  <div class="empty-hint" id="emptyHint"><span class="big">— ledger empty —</span>Load a dataset above, then ask your first question.</div>
-</div>
 <div class="sheet history-index" id="historyIndex">
   <div class="section-label"><span class="n">03</span> Session history</div>
   <div id="historyList"></div>
 </div>
+
+<div id="history">
+  <div class="empty-hint" id="emptyHint"><span class="big">— ledger empty —</span>Load a dataset above, then ask your first question.</div>
+</div>
+
 <footer>InsightAI Query Ledger</footer>
 
 </div>
@@ -521,9 +530,15 @@ function escapeHtml(str) {
   div.textContent = str;
   return div.innerHTML;
 }
+
+// Shows empty cells as blank instead of the word "null"
+function cellText(v) {
+  return v === null || v === undefined ? "" : String(v);
+}
+
 function downloadCsv(columns, rows, filenameHint) {
   const escapeCsvCell = (val) => {
-    const str = String(val);
+    const str = cellText(val);
     if (str.includes(",") || str.includes('"') || str.includes("\n")) {
       return `"${str.replace(/"/g, '""')}"`;
     }
@@ -605,23 +620,29 @@ async function uploadFile() {
       document.getElementById("previewColCount").textContent = data.columns.length;
 
       let tableHtml = "<tr>" + data.columns.map(c => `<th>${escapeHtml(c)}</th>`).join("") + "</tr>";
-
       for (const row of data.preview_rows) {
-        tableHtml += "<tr>" + row.map(v => `<td>${escapeHtml(v)}</td>`).join("") + "</tr>";
+        tableHtml += "<tr>" + row.map(v => `<td>${escapeHtml(cellText(v))}</td>`).join("") + "</tr>";
       }
-
       document.getElementById("previewTable").innerHTML = tableHtml;
       previewCard.style.display = "block";
 
-      // Suggested questions
+      // Suggested questions (built with DOM + click handlers, so quotes in a
+      // question can never break the page)
       const suggestedBox = document.getElementById("suggestedQuestions");
       const chipRow = document.getElementById("chipRow");
+      chipRow.innerHTML = "";
 
       if (data.suggested_questions && data.suggested_questions.length) {
-        chipRow.innerHTML = data.suggested_questions.map(q =>
-          `<div class="chip" onclick="document.getElementById('question').value = ${JSON.stringify(q)}; askQuestion();">${escapeHtml(q)}</div>`
-        ).join("");
-
+        data.suggested_questions.forEach(q => {
+          const chip = document.createElement("div");
+          chip.className = "chip";
+          chip.textContent = q;
+          chip.onclick = () => {
+            document.getElementById("question").value = q;
+            askQuestion();
+          };
+          chipRow.appendChild(chip);
+        });
         suggestedBox.style.display = "block";
       } else {
         suggestedBox.style.display = "none";
@@ -715,7 +736,7 @@ async function askQuestion() {
     } else {
       let tableHtml = "<table><tr>" + data.columns.map(c => `<th>${escapeHtml(c)}</th>`).join("") + "</tr>";
       for (const row of data.rows) {
-        tableHtml += "<tr>" + row.map(v => `<td>${escapeHtml(String(v))}</td>`).join("") + "</tr>";
+        tableHtml += "<tr>" + row.map(v => `<td>${escapeHtml(cellText(v))}</td>`).join("") + "</tr>";
       }
       tableHtml += "</table>";
 
@@ -725,25 +746,34 @@ async function askQuestion() {
           <span class="entry-question">${escapeHtml(question)}</span>
         </div>
         <div class="receipt">
-  <div class="receipt-sql">${escapeHtml(data.sql)}</div>
-  ${data.sql_explanation ? `<div style="margin-top:8px; padding-top:8px; border-top:1px dashed var(--rule); font-family:'IBM Plex Sans',sans-serif; font-size:12.5px; color:var(--ink-soft); font-style:italic;">${escapeHtml(data.sql_explanation)}</div>` : ""}
-</div>
+          <div class="receipt-sql">${escapeHtml(data.sql)}</div>
+          ${data.sql_explanation ? `<div style="margin-top:8px; padding-top:8px; border-top:1px dashed var(--rule); font-family:'IBM Plex Sans',sans-serif; font-size:12.5px; color:var(--ink-soft); font-style:italic;">${escapeHtml(data.sql_explanation)}</div>` : ""}
+        </div>
         ${tableHtml}
         <div class="row" style="margin-top:8px;">
-          <button onclick='downloadCsv(${JSON.stringify(data.columns)}, ${JSON.stringify(data.rows)}, "insightai_result_${entryLabel}")'>Download CSV</button>
+          <button class="csv-btn">Download CSV</button>
         </div>
         ${data.chart ? `<div class="chart-frame"><img class="chart-img" src="/charts/${data.chart}?t=${Date.now()}"></div>` : ""}
         ${data.insight ? `<div class="insight-note">${escapeHtml(data.insight)}</div>` : ""}
       `;
+
+      // Attached in JS (not an inline onclick) so values like O'Brien or
+      // "quoted" text in the data can never break the button
+      const csvBtn = block.querySelector(".csv-btn");
+      if (csvBtn) {
+        csvBtn.onclick = () => downloadCsv(data.columns, data.rows, "insightai_result_" + entryLabel);
+      }
     }
 
     document.getElementById("history").appendChild(block);
+
     document.getElementById("historyIndex").style.display = "block";
     const historyItem = document.createElement("div");
     historyItem.className = "history-item";
     historyItem.innerHTML = `<span class="history-num">No. ${entryLabel}</span>${escapeHtml(question)}`;
     historyItem.onclick = () => block.scrollIntoView({ behavior: "smooth", block: "start" });
     document.getElementById("historyList").appendChild(historyItem);
+
     questionInput.value = "";
   } catch (err) {
     status.textContent = "Network error: " + err.message;
