@@ -418,6 +418,7 @@
   .history-item:last-child { border-bottom: none; }
   .history-item:hover { color: var(--ledger-green); }
   .history-num { color: var(--ledger-green); margin-right: 8px; }
+  .history-item.active { color: var(--ledger-green); font-weight: 600; }
 
   .empty-hint {
     color: var(--ink-soft);
@@ -519,6 +520,8 @@
 
 <script>
 let entryCount = 0;
+// Every question/answer pair is saved here. The page just displays one at a time.
+const sessionHistory = [];
 
 function setLoading(btn, isLoading, label) {
   btn.disabled = isLoading;
@@ -653,7 +656,7 @@ async function uploadFile() {
       const edaGrid = document.getElementById("edaGrid");
 
       if (data.eda_summary && data.eda_summary.length) {
-          edaGrid.innerHTML = data.eda_summary.map(col => {
+        edaGrid.innerHTML = data.eda_summary.map(col => {
           const missingRow = `<div class="eda-stat-row"><span>Missing</span><b>${col.missing}</b></div>`;
           if (col.type === "numeric") {
             return `<div class="eda-card">
@@ -668,6 +671,7 @@ async function uploadFile() {
             const rows = col.top_values.map(tv =>
               `<div class="eda-stat-row"><span>${escapeHtml(tv.value)}</span><b>${tv.count}</b></div>`
             ).join("");
+
             return `<div class="eda-card">
               <div class="eda-card-title">${escapeHtml(col.column)} <span style="font-weight:400; color:var(--ink-soft);">· categorical</span></div>
               ${rows}
@@ -691,6 +695,65 @@ async function uploadFile() {
   } finally {
     setLoading(btn, false, "Load CSV");
   }
+}
+
+// Draws ONE saved interaction into the main result area, replacing whatever
+// was shown before. Used for a fresh answer AND when a history item is clicked.
+function showEntry(entry) {
+  const data = entry.data;
+  const block = document.createElement("div");
+  block.className = "entry";
+
+  if (!entry.ok) {
+    block.innerHTML = `
+      <div class="entry-head">
+        <span class="entry-number">No. ${entry.label}</span>
+        <span class="entry-question">${escapeHtml(entry.question)}</span>
+      </div>
+      <div class="error-strip">${escapeHtml(data.error || "Something went wrong.")}</div>
+      ${data.sql ? `<div class="receipt" style="margin-top:14px;"><div class="receipt-sql">${escapeHtml(data.sql)}</div></div>` : ""}
+    `;
+  } else {
+    let tableHtml = "<table><tr>" + data.columns.map(c => `<th>${escapeHtml(c)}</th>`).join("") + "</tr>";
+    for (const row of data.rows) {
+      tableHtml += "<tr>" + row.map(v => `<td>${escapeHtml(cellText(v))}</td>`).join("") + "</tr>";
+    }
+    tableHtml += "</table>";
+
+    block.innerHTML = `
+      <div class="entry-head">
+        <span class="entry-number">No. ${entry.label}</span>
+        <span class="entry-question">${escapeHtml(entry.question)}</span>
+      </div>
+      <div class="receipt">
+        <div class="receipt-sql">${escapeHtml(data.sql)}</div>
+        ${data.sql_explanation ? `<div style="margin-top:8px; padding-top:8px; border-top:1px dashed var(--rule); font-family:'IBM Plex Sans',sans-serif; font-size:12.5px; color:var(--ink-soft); font-style:italic;">${escapeHtml(data.sql_explanation)}</div>` : ""}
+      </div>
+      ${tableHtml}
+      <div class="row" style="margin-top:8px;">
+        <button class="csv-btn">Download CSV</button>
+      </div>
+      ${data.chart ? `<div class="chart-frame"><img class="chart-img" src="/charts/${data.chart}?t=${entry.time}"></div>` : ""}
+      ${data.insight ? `<div class="insight-note">${escapeHtml(data.insight)}</div>` : ""}
+    `;
+
+    // The button's click is attached here, every time an entry is shown,
+    // so a restored answer's Download CSV button works too.
+    const csvBtn = block.querySelector(".csv-btn");
+    if (csvBtn) {
+      csvBtn.onclick = () => downloadCsv(data.columns, data.rows, "insightai_result_" + entry.label);
+    }
+  }
+
+  // Replace (not append): the main area only ever shows one interaction.
+  const area = document.getElementById("history");
+  area.innerHTML = "";
+  area.appendChild(block);
+
+  // Highlight the matching item in the Session History list.
+  document.querySelectorAll(".history-item").forEach(el => {
+    el.classList.toggle("active", el.dataset.label === entry.label);
+  });
 }
 
 async function askQuestion() {
@@ -717,65 +780,28 @@ async function askQuestion() {
     });
     const data = await res.json();
 
-    const emptyHint = document.getElementById("emptyHint");
-    if (emptyHint) emptyHint.remove();
-
     entryCount += 1;
     const entryLabel = String(entryCount).padStart(3, "0");
 
-    const block = document.createElement("div");
-    block.className = "entry";
+    // Save the complete interaction (the whole /ask response comes along with it).
+    const entry = { label: entryLabel, question: question, ok: res.ok, data: data, time: Date.now() };
+    sessionHistory.push(entry);
+    const index = sessionHistory.length - 1;
 
-    if (!res.ok) {
-      block.innerHTML = `
-        <div class="entry-head">
-          <span class="entry-number">No. ${entryLabel}</span>
-          <span class="entry-question">${escapeHtml(question)}</span>
-        </div>
-        <div class="error-strip">${escapeHtml(data.error)}</div>
-        ${data.sql ? `<div class="receipt" style="margin-top:14px;"><div class="receipt-sql">${escapeHtml(data.sql)}</div></div>` : ""}
-      `;
-    } else {
-      let tableHtml = "<table><tr>" + data.columns.map(c => `<th>${escapeHtml(c)}</th>`).join("") + "</tr>";
-      for (const row of data.rows) {
-        tableHtml += "<tr>" + row.map(v => `<td>${escapeHtml(cellText(v))}</td>`).join("") + "</tr>";
-      }
-      tableHtml += "</table>";
-
-      block.innerHTML = `
-        <div class="entry-head">
-          <span class="entry-number">No. ${entryLabel}</span>
-          <span class="entry-question">${escapeHtml(question)}</span>
-        </div>
-        <div class="receipt">
-          <div class="receipt-sql">${escapeHtml(data.sql)}</div>
-          ${data.sql_explanation ? `<div style="margin-top:8px; padding-top:8px; border-top:1px dashed var(--rule); font-family:'IBM Plex Sans',sans-serif; font-size:12.5px; color:var(--ink-soft); font-style:italic;">${escapeHtml(data.sql_explanation)}</div>` : ""}
-        </div>
-        ${tableHtml}
-        <div class="row" style="margin-top:8px;">
-          <button class="csv-btn">Download CSV</button>
-        </div>
-        ${data.chart ? `<div class="chart-frame"><img class="chart-img" src="/charts/${data.chart}?t=${Date.now()}"></div>` : ""}
-        ${data.insight ? `<div class="insight-note">${escapeHtml(data.insight)}</div>` : ""}
-      `;
-
-      // Attached in JS (not an inline onclick) so values like O'Brien or
-      // "quoted" text in the data can never break the button
-      const csvBtn = block.querySelector(".csv-btn");
-      if (csvBtn) {
-        csvBtn.onclick = () => downloadCsv(data.columns, data.rows, "insightai_result_" + entryLabel);
-      }
-    }
-
-    document.getElementById("history").appendChild(block);
-
+    // Add it to the Session History list. Clicking it re-shows the saved answer.
     document.getElementById("historyIndex").style.display = "block";
     const historyItem = document.createElement("div");
     historyItem.className = "history-item";
+    historyItem.dataset.label = entryLabel;
     historyItem.innerHTML = `<span class="history-num">No. ${entryLabel}</span>${escapeHtml(question)}`;
-    historyItem.onclick = () => block.scrollIntoView({ behavior: "smooth", block: "start" });
+    historyItem.onclick = () => {
+      showEntry(sessionHistory[index]);
+      document.getElementById("history").scrollIntoView({ behavior: "smooth", block: "start" });
+    };
     document.getElementById("historyList").appendChild(historyItem);
 
+    // Show the newest answer in the main area (this replaces the previous one).
+    showEntry(entry);
     questionInput.value = "";
   } catch (err) {
     status.textContent = "Network error: " + err.message;
