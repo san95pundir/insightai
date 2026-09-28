@@ -356,9 +356,12 @@ def generate_suggested_questions(schema):
 
 {schema}
 
-Suggest 3-4 good, specific analytical questions a user could ask about
-this data. Return ONLY a JSON array of strings, no markdown, no
-explanation. Example format: ["question 1", "question 2", "question 3"]
+Suggest 4 short analytical questions a user could ask about this data.
+Rules:
+- Each question must ask for ONE thing and be under 12 words.
+- Each must be answerable with a single SQL query on this one table.
+- Return ONLY a JSON array of strings, no markdown, no explanation.
+Example format: ["question 1", "question 2", "question 3", "question 4"]
 """
 
     try:
@@ -396,6 +399,8 @@ def generate_eda_summary(df):
         else:
             clean = series.dropna()
             if len(clean) == 0:
+                continue
+            if clean.nunique() == len(clean):
                 continue
             top_values = clean.value_counts().head(3)
             summary.append({

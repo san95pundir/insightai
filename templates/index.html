@@ -653,23 +653,25 @@ async function uploadFile() {
       const edaGrid = document.getElementById("edaGrid");
 
       if (data.eda_summary && data.eda_summary.length) {
-        edaGrid.innerHTML = data.eda_summary.map(col => {
+          edaGrid.innerHTML = data.eda_summary.map(col => {
+          const missingRow = `<div class="eda-stat-row"><span>Missing</span><b>${col.missing}</b></div>`;
           if (col.type === "numeric") {
             return `<div class="eda-card">
-              <div class="eda-card-title">${escapeHtml(col.column)}</div>
+              <div class="eda-card-title">${escapeHtml(col.column)} <span style="font-weight:400; color:var(--ink-soft);">· numeric</span></div>
               <div class="eda-stat-row"><span>Mean</span><b>${col.mean}</b></div>
               <div class="eda-stat-row"><span>Median</span><b>${col.median}</b></div>
               <div class="eda-stat-row"><span>Min</span><b>${col.min}</b></div>
               <div class="eda-stat-row"><span>Max</span><b>${col.max}</b></div>
+              ${missingRow}
             </div>`;
           } else {
             const rows = col.top_values.map(tv =>
               `<div class="eda-stat-row"><span>${escapeHtml(tv.value)}</span><b>${tv.count}</b></div>`
             ).join("");
-
             return `<div class="eda-card">
-              <div class="eda-card-title">${escapeHtml(col.column)}</div>
+              <div class="eda-card-title">${escapeHtml(col.column)} <span style="font-weight:400; color:var(--ink-soft);">· categorical</span></div>
               ${rows}
+              ${missingRow}
             </div>`;
           }
         }).join("");
