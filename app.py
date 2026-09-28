@@ -1,5 +1,6 @@
 import json
 import re
+import time
 import os
 import sqlite3
 import uuid
@@ -69,6 +70,35 @@ def load_csv_to_sqlite(csv_path, table_name, db_path=DB_PATH):
 
     return schema_str, list(df.columns), preview_rows, row_count, df
 
+RETRY_CODES = (429, 500, 503, 504)
+RETRY_WORDS = ("UNAVAILABLE", "RESOURCE_EXHAUSTED", "high demand", "overloaded")
+
+
+def generate_with_retry(client, prompt, attempts=3):
+    """
+    Calls Gemini. If it fails with a temporary error (overloaded or rate
+    limited), waits a moment and tries again. Real errors are raised
+    immediately, since retrying them won't help.
+    """
+    delay = 1
+    for attempt in range(attempts):
+        try:
+            return client.models.generate_content(
+                model="gemini-flash-latest",
+                contents=prompt,
+            )
+        except Exception as e:
+            message = str(e)
+            code = getattr(e, "code", None)
+            is_temporary = code in RETRY_CODES or any(w in message for w in RETRY_WORDS)
+            if not is_temporary or attempt == attempts - 1:
+                raise
+            print(f"[gemini] temporary error, retrying in {delay}s (attempt {attempt + 1}/{attempts}): {message[:100]}", flush=True)
+            time.sleep(delay)
+            delay *= 2
+
+
+
 
 def ask_gemini_for_sql(question, schema, table_name, retry_context=None):
     client = get_gemini_client()
@@ -101,10 +131,8 @@ Rules:
 - Use the exact table name: {table_name}
 """
 
-    response = client.models.generate_content(
-        model="gemini-flash-latest",
-        contents=prompt,
-    )
+    response = generate_with_retry(client, prompt)
+    
     sql = response.text.strip()
     sql = sql.replace("```sql", "").replace("```", "").strip()
     return sql
@@ -252,10 +280,7 @@ takeaway. No preamble, just the single sentence.
 """
 
     try:
-        response = client.models.generate_content(
-            model="gemini-flash-latest",
-            contents=prompt,
-        )
+        response = generate_with_retry(client, prompt)
         return response.text.strip()
     except Exception as e:
         print(f"[generate_insight] failed: {type(e).__name__}: {e}", flush=True)
@@ -281,10 +306,7 @@ SQL:
 """
 
     try:
-        response = client.models.generate_content(
-            model="gemini-flash-latest",
-            contents=prompt,
-        )
+        response = generate_with_retry(client, prompt)
         return response.text.strip()
     except Exception as e:
         print(f"[generate_sql_explanation] failed: {type(e).__name__}: {e}", flush=True)
@@ -340,10 +362,7 @@ explanation. Example format: ["question 1", "question 2", "question 3"]
 """
 
     try:
-        response = client.models.generate_content(
-            model="gemini-flash-latest",
-            contents=prompt,
-        )
+        response = generate_with_retry(client, prompt)
         return parse_suggested_questions(response.text)
     except Exception as e:
         print(f"[generate_suggested_questions] failed: {type(e).__name__}: {e}", flush=True)
@@ -462,8 +481,8 @@ def ask():
         except RuntimeError as e:
             return jsonify({"error": str(e)}), 500
         except Exception as e:
-            return jsonify({"error": f"Gemini call failed: {e}"}), 500
-
+            print(f"[ask] Gemini call failed: {type(e).__name__}: {e}", flush=True)
+            return jsonify({"error": "Gemini is busy right now. Please ask again in a few seconds."}), 503
         try:
             result_df = run_query(sql, table_name)
             last_error = None
