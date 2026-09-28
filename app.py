@@ -257,7 +257,8 @@ takeaway. No preamble, just the single sentence.
             contents=prompt,
         )
         return response.text.strip()
-    except Exception:
+    except Exception as e:
+        print(f"[generate_insight] failed: {type(e).__name__}: {e}", flush=True)
         return None
 
 def generate_sql_explanation(sql):
@@ -285,7 +286,8 @@ SQL:
             contents=prompt,
         )
         return response.text.strip()
-    except Exception:
+    except Exception as e:
+        print(f"[generate_sql_explanation] failed: {type(e).__name__}: {e}", flush=True)
         return None
 
 def parse_suggested_questions(raw_text):
@@ -343,7 +345,8 @@ explanation. Example format: ["question 1", "question 2", "question 3"]
             contents=prompt,
         )
         return parse_suggested_questions(response.text)
-    except Exception:
+    except Exception as e:
+        print(f"[generate_suggested_questions] failed: {type(e).__name__}: {e}", flush=True)
         return []
 
 def generate_eda_summary(df):
